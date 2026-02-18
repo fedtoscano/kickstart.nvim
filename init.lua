@@ -229,6 +229,14 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   callback = function() vim.hl.on_yank() end,
 })
 
+-- Assicura che i file .vue siano riconosciuti come vue filetype
+vim.api.nvim_create_autocmd({ 'BufRead', 'BufNewFile' }, {
+  pattern = '*.vue',
+  callback = function()
+    vim.bo.filetype = 'vue'
+  end,
+})
+
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -593,7 +601,29 @@ require('lazy').setup({
       local servers = {
         intelephense = {},
         ts_ls = {},
-        vuels = {},
+        vuels = {
+          on_attach = function(client)
+            -- Disabilita il semantic highlighting di Vetur per evitare conflitti con Treesitter
+            client.server_capabilities.semanticTokensProvider = nil
+          end,
+          settings = {
+            vetur = {
+              ignoreProjectWarning = true,
+              validation = {
+                template = true,
+                script = true,
+                style = true,
+              },
+              completion = {
+                autoImport = true,
+              },
+            },
+          },
+          root_dir = function(fname)
+            -- Cerca la root del progetto Vue
+            return vim.fs.find({ 'package.json', 'vue.config.js', '.git' }, { path = fname, upward = true })[1]
+          end,
+        },
         lua_ls = {},
         --clangd = {},
         --gopls = {},
@@ -619,7 +649,7 @@ require('lazy').setup({
         'stylua',
         'intelephense', -- Pacchetto per PHP
         'typescript-language-server', -- Questo installerà il server 'ts_ls'
-        'vetur-vls', -- Questo installerà il server 'vuels' (Vetur per Vue 2)
+        'vetur-vls', -- Vetur per Vue 2 (con semantic highlighting disabilitato)
         'blade-formatter',
       }
 
@@ -634,7 +664,6 @@ require('lazy').setup({
 
       for name, server in pairs(servers) do
         server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-        require('lspconfig')[name].setup(server)
         vim.lsp.config(name, server)
         vim.lsp.enable(name)
       end
@@ -783,7 +812,13 @@ require('lazy').setup({
       },
 
       sources = {
-        default = { 'lsp', 'path', 'snippets' },
+        default = { 'lsp', 'path', 'snippets', 'buffer', 'dadbod' },
+        providers = {
+          dadbod = {
+            name = 'Dadbod',
+            module = 'vim_dadbod_completion.blink',
+          },
+        },
       },
 
       snippets = { preset = 'luasnip' },
@@ -812,7 +847,9 @@ require('lazy').setup({
     config = function()
       ---@diagnostic disable-next-line: missing-fields
       require('tokyonight').setup {
+        transparent = true,
         styles = {
+          sidebars = 'transparent',
           comments = { italic = false }, -- Disable italics in comments
         },
       }
@@ -821,6 +858,8 @@ require('lazy').setup({
       -- Like many other themes, this one has different styles, and you could load
       -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
       vim.cmd.colorscheme 'retrobox'
+      vim.api.nvim_set_hl(0, 'Normal', { bg = 'none' })
+      vim.api.nvim_set_hl(0, 'NormalFloat', { bg = 'none' })
     end,
   },
 
@@ -875,61 +914,67 @@ require('lazy').setup({
       end
     end,
   },
-  {
+
+  { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
     build = ':TSUpdate',
     config = function()
-      local parser_config = require('nvim-treesitter.parsers').get_parser_configs()
-      parser_config.blade = {
-        install_info = {
-          url = 'https://github.com/EmranMR/tree-sitter-blade',
-          files = { 'src/parser.c' },
-          branch = 'main',
-        },
-        filetype = 'blade',
-      }
-
-      vim.filetype.add {
-        pattern = {
-          ['.*%.blade%.php'] = 'blade',
-        },
-      }
       require('nvim-treesitter').setup {
         ensure_installed = {
+          'bash',
+          'c',
+          'diff',
+          'lua',
+          'luadoc',
+          'markdown',
+          'markdown_inline',
+          'query',
+          'vim',
+          'vimdoc',
           'php',
           'php_only',
           'blade',
-          'json',
-          'yaml',
-          'sql',
-
           'vue',
+          'json',
           'javascript',
           'typescript',
-          'tsx',
           'html',
           'css',
           'scss',
-
-          'lua',
-          'vim',
-          'vimdoc',
-          'query',
-
-          'markdown',
-          'markdown_inline',
         },
-
         auto_install = false,
-
         highlight = {
           enable = true,
         },
-
         indent = {
           enable = true,
         },
       }
+    end,
+  },
+
+  { -- Database client for MySQL, PostgreSQL, SQLite
+    'tpope/vim-dadbod',
+    dependencies = {
+      'kristijanhusak/vim-dadbod-ui',
+      'kristijanhusak/vim-dadbod-completion',
+    },
+    cmd = {
+      'DBUI',
+      'DBUIToggle',
+      'DBUIAddConnection',
+      'DBUIFindBuffer',
+    },
+    init = function()
+      -- Your DBUI configuration
+      vim.g.db_ui_use_nerd_fonts = vim.g.have_nerd_font and 1 or 0
+      vim.g.db_ui_show_database_icon = 1
+      vim.g.db_ui_force_echo_notifications = 1
+      vim.g.db_ui_win_position = 'left'
+      vim.g.db_ui_winwidth = 35
+
+      -- Automatically execute query on save
+      vim.g.db_ui_auto_execute_table_helpers = 1
     end,
   },
 
@@ -947,7 +992,7 @@ require('lazy').setup({
   require 'kickstart.plugins.lint',
   require 'kickstart.plugins.autopairs',
   require 'kickstart.plugins.neo-tree',
-  -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
+  require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
