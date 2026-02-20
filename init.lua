@@ -232,9 +232,7 @@ vim.api.nvim_create_autocmd('TextYankPost', {
 -- Assicura che i file .vue siano riconosciuti come vue filetype
 vim.api.nvim_create_autocmd({ 'BufRead', 'BufNewFile' }, {
   pattern = '*.vue',
-  callback = function()
-    vim.bo.filetype = 'vue'
-  end,
+  callback = function() vim.bo.filetype = 'vue' end,
 })
 
 -- [[ Install `lazy.nvim` plugin manager ]]
@@ -414,7 +412,14 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
       vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
       vim.keymap.set('n', '<leader>sc', builtin.commands, { desc = '[S]earch [C]ommands' })
-      vim.keymap.set('n', '<leader><leader>', builtin.buffers, { desc = '[ ] Find existing buffers' })
+      vim.keymap.set('n', '<leader><leader>', function()
+        builtin.buffers {
+          attach_mappings = function(_, map)
+            map('n', 'd', 'delete_buffer', { desc = 'Delete buffer' })
+            return true
+          end,
+        }
+      end, { desc = '[ ] Find existing buffers' })
 
       -- This runs on LSP attach per buffer (see main LSP attach function in 'neovim/nvim-lspconfig' config for more info,
       -- it is better explained there). This allows easily switching between pickers if you prefer using something else!
@@ -889,8 +894,11 @@ require('lazy').setup({
       --  You could remove this setup call if you don't like it,
       --  and try some other statusline plugin
       local statusline = require 'mini.statusline'
-      -- set use_icons to true if you have a Nerd Font
       statusline.setup { use_icons = vim.g.have_nerd_font }
+
+      statusline.section_filename = function()
+        return vim.fn.fnamemodify(vim.fn.expand('%'), ':t')
+      end
 
       -- You can configure sections in the statusline by overriding their
       -- default behavior. For example, here we set the section for
