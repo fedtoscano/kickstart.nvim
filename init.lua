@@ -177,9 +177,9 @@ vim.diagnostic.config {
   severity_sort = true,
   float = { border = 'rounded', source = 'if_many' },
   underline = { severity = vim.diagnostic.severity.ERROR },
+  signs = true,
 
-  -- Can switch between these as you prefer
-  virtual_text = true, -- Text shows up at the end of the line
+  virtual_text = true,
   virtual_lines = false, -- Teest shows up underneath the line, with virtual lines
 
   -- Auto open the float, so you can easily read the errors when jumping with `[d` and `]d`
@@ -229,11 +229,30 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   callback = function() vim.hl.on_yank() end,
 })
 
--- Assicura che i file .vue siano riconosciuti come vue filetype
-vim.api.nvim_create_autocmd({ 'BufRead', 'BufNewFile' }, {
-  pattern = '*.vue',
-  callback = function() vim.bo.filetype = 'vue' end,
+-- Riconosci i file .blade.php come blade filetype
+vim.filetype.add {
+  pattern = {
+    ['.*%.blade%.php'] = 'blade',
+  },
+}
+
+-- Force vuels to attach to Vue files
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'vue',
+  callback = function(args)
+    local existing = vim.lsp.get_clients({ bufnr = args.buf, name = 'vuels' })
+    if #existing == 0 then
+      vim.lsp.start({
+        name = 'vuels',
+        cmd = { 'vls', '--stdio' },
+        filetypes = { 'vue' },
+        root_dir = vim.fn.getcwd(),
+      }, { bufnr = args.buf })
+    end
+  end,
 })
+
+
 
 -- [[ Install `lazy.nvim` plugin manager ]]
 --    See `:help lazy.nvim.txt` or https://github.com/folke/lazy.nvim for more info
@@ -289,6 +308,14 @@ require('lazy').setup({
         changedelete = { text = '~' },
       },
     },
+  },
+  { -- Smart and powerful comment plugin
+    'numToStr/Comment.nvim',
+    event = { 'BufReadPre', 'BufNewFile' },
+    dependencies = {
+      'JoosepAlviste/nvim-ts-context-commentstring',
+    },
+    opts = {},
   },
   -- NOTE: Plugins can also be configured to run Lua code when they are loaded.
   --
@@ -604,11 +631,62 @@ require('lazy').setup({
       --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
       --  See `:help lsp-config` for information about keys and how to configure
       local servers = {
-        intelephense = {},
-        ts_ls = {},
+        intelephense = {
+          settings = {
+            ['intelephense.diagnostics.unusedSymbols'] = true,
+            ['intelephense.diagnostics.unusedSymbolsIncludePrivateSymbols'] = true,
+          },
+        },
+        ts_ls = {
+          settings = {
+            typescript = {
+              inlayHints = {
+                includeInlayParameterNameHints = 'all',
+                includeInlayParameterNameHintsWhenArgumentMatchesName = false,
+                includeInlayFunctionParameterTypeHints = true,
+                includeInlayVariableTypeHints = true,
+                includeInlayPropertyDeclarationTypeHints = true,
+                includeInlayFunctionLikeReturnTypeHints = true,
+                includeInlayEnumMemberValueHints = true,
+              },
+              diagnostics = {
+                unusedLocals = true,
+                unusedFunctions = true,
+              },
+            },
+            javascript = {
+              inlayHints = {
+                includeInlayParameterNameHints = 'all',
+                includeInlayParameterNameHintsWhenArgumentMatchesName = false,
+                includeInlayFunctionParameterTypeHints = true,
+                includeInlayVariableTypeHints = true,
+                includeInlayPropertyDeclarationTypeHints = true,
+                includeInlayFunctionLikeReturnTypeHints = true,
+                includeInlayEnumMemberValueHints = true,
+              },
+              diagnostics = {
+                unusedLocals = true,
+                unusedFunctions = true,
+              },
+            },
+            completions = {
+              completeFunctionCalls = true,
+            },
+          },
+        },
+        emmet_ls = {
+          filetypes = { 'html', 'css', 'blade', 'vue', 'javascript', 'typescriptreact', 'javascriptreact' },
+          init_options = {
+            html = {
+              options = {
+                ['output.selfClosingStyle'] = 'xhtml',
+              },
+            },
+          },
+        },
         vuels = {
+          filetypes = { 'vue', 'vue-typescript' },
           on_attach = function(client)
-            -- Disabilita il semantic highlighting di Vetur per evitare conflitti con Treesitter
             client.server_capabilities.semanticTokensProvider = nil
           end,
           settings = {
@@ -618,15 +696,34 @@ require('lazy').setup({
                 template = true,
                 script = true,
                 style = true,
+                templateProps = true,
+                interpolation = true,
               },
               completion = {
                 autoImport = true,
+                useScaffoldSnippets = true,
+              },
+              format = {
+                defaultFormatter = 'prettier',
+                defaultFormatterOptions = {
+                  prettier = {
+                    singleQuote = true,
+                    semi = true,
+                    trailingComma = 'es5',
+                  },
+                },
+              },
+            },
+            vls = {
+              config = {
+                ['vetur'] = {
+                  useJavaScriptValidators = true,
+                },
               },
             },
           },
           root_dir = function(fname)
-            -- Cerca la root del progetto Vue
-            return vim.fs.find({ 'package.json', 'vue.config.js', '.git' }, { path = fname, upward = true })[1]
+            return vim.fs.find({ 'package.json', 'vue.config.js', '.git', 'webpack.mix.js' }, { path = fname, upward = true })[1]
           end,
         },
         lua_ls = {},
@@ -652,10 +749,13 @@ require('lazy').setup({
       local ensure_installed = {
         'lua-language-server',
         'stylua',
-        'intelephense', -- Pacchetto per PHP
-        'typescript-language-server', -- Questo installerà il server 'ts_ls'
-        'vetur-vls', -- Vetur per Vue 2 (con semantic highlighting disabilitato)
+        'intelephense',
+        'typescript-language-server',
+        'vetur-vls',
         'blade-formatter',
+        'laravel-ls',
+        'emmet-language-server',
+        'prettier',
       }
 
       -- vim.list_extend(ensure_installed, {
@@ -672,6 +772,20 @@ require('lazy').setup({
         vim.lsp.config(name, server)
         vim.lsp.enable(name)
       end
+
+      -- Configura laravel-ls con vim.lsp.config
+      vim.lsp.config('laravel-ls', {
+        capabilities = capabilities,
+        filetypes = { 'blade', 'php' },
+        settings = {
+          ['laravel-ls'] = {
+            enableStamp = true,
+            bladeAutoSpacing = true,
+            artisanConsoleSupport = true,
+          },
+        },
+      })
+      vim.lsp.enable 'laravel-ls'
 
       -- Special Lua Config, as recommended by neovim help docs
       vim.lsp.config('lua_ls', {
@@ -716,6 +830,14 @@ require('lazy').setup({
     },
     opts = {
       notify_on_error = false,
+      formatters = {
+        blade_formatter = {
+          timeout_ms = 30000,
+        },
+        prettier = {
+          timeout_ms = 30000,
+        },
+      },
       format_on_save = function(bufnr)
         -- Disable "format_on_save lsp_fallback" for languages that don't
         -- have a well standardized coding style. You can add additional
@@ -725,7 +847,7 @@ require('lazy').setup({
           return nil
         else
           return {
-            timeout_ms = 500,
+            timeout_ms = 30000,
             lsp_format = 'fallback',
           }
         end
@@ -734,11 +856,7 @@ require('lazy').setup({
         lua = { 'stylua' },
         php = { 'intelephense' },
         blade = { 'blade-formatter' },
-        -- Conform can also run multiple formatters sequentially
-        -- python = { "isort", "black" },
-        --
-        -- You can use 'stop_after_first' to run the first available formatter from the list
-        -- javascript = { "prettierd", "prettier", stop_after_first = true },
+        vue = { 'prettierd', 'prettier', stop_after_first = true },
       },
     },
   },
@@ -824,6 +942,11 @@ require('lazy').setup({
             module = 'vim_dadbod_completion.blink',
           },
         },
+        providers_by_ft = {
+          vue = { 'lsp', 'path', 'snippets', 'buffer' },
+          blade = { 'lsp', 'path', 'snippets', 'buffer' },
+          php = { 'lsp', 'path', 'snippets', 'buffer', 'dadbod' },
+        },
       },
 
       snippets = { preset = 'luasnip' },
@@ -888,7 +1011,6 @@ require('lazy').setup({
       -- - sd'   - [S]urround [D]elete [']quotes
       -- - sr)'  - [S]urround [R]eplace [)] [']
       require('mini.surround').setup()
-      require('mini.comment').setup()
 
       -- Simple and easy statusline.
       --  You could remove this setup call if you don't like it,
@@ -896,9 +1018,17 @@ require('lazy').setup({
       local statusline = require 'mini.statusline'
       statusline.setup { use_icons = vim.g.have_nerd_font }
 
-      statusline.section_filename = function()
-        return vim.fn.fnamemodify(vim.fn.expand('%'), ':t')
-      end
+      statusline.section_fileinfo = function()
+  local filename = vim.fn.fnamemodify(vim.fn.expand '%', ':t')
+  local fileinfo = filename
+  if vim.bo.readonly then
+    fileinfo = fileinfo .. ' 🔒'
+  end
+  if vim.bo.modified then
+    fileinfo = fileinfo .. ' ●'
+  end
+  return fileinfo
+end
 
       -- You can configure sections in the statusline by overriding their
       -- default behavior. For example, here we set the section for
@@ -913,14 +1043,15 @@ require('lazy').setup({
   {
     'JoosepAlviste/nvim-ts-context-commentstring',
     opts = {
-      enable_autocmd = false,
+      languages = {
+        vue = {
+          __default = '<!-- %s -->',
+          script_element = { __default = '// %s', __multiline = '/* %s */' },
+          style_element = '/* %s */',
+          template_element = '<!-- %s -->',
+        },
+      },
     },
-    config = function()
-      local get_option = vim.filetype.get_option
-      vim.filetype.get_option = function(filetype, option)
-        return option == 'commentstring' and require('ts_context_commentstring.internal').calculate_commentstring() or get_option(filetype, option)
-      end
-    end,
   },
 
   { -- Highlight, edit, and navigate code
@@ -950,7 +1081,7 @@ require('lazy').setup({
           'css',
           'scss',
         },
-        auto_install = false,
+        auto_install = true,
         highlight = {
           enable = true,
         },
