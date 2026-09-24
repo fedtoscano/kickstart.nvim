@@ -70,6 +70,11 @@ vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' }
 -- vim.keymap.set("n", "<C-S-j>", "<C-w>J", { desc = "Move window to the lower" })
 -- vim.keymap.set("n", "<C-S-k>", "<C-w>K", { desc = "Move window to the upper" })
 
+-- Modalità prosa: `:Prose` o <leader>z trasformano la finestra in un editor di testo
+--  minimale (colonna centrata, a capo sulle parole). Solo manuale, mai automatica.
+--  Vedi `lua/custom/prose.lua` e `lua/custom/plugins/prose.lua`.
+require 'custom.prose'
+
 -- [[ Basic Autocommands ]]
 --  See `:help lua-guide-autocommands`
 
