@@ -5,6 +5,7 @@ vim.o.number = true
 vim.o.relativenumber = true
 vim.o.tabstop = 2
 vim.o.softtabstop = 2
+vim.o.shiftwidth = 2
 vim.o.expandtab = true
 vim.o.mouse = 'a'
 vim.o.showmode = false
@@ -24,6 +25,16 @@ vim.o.inccommand = 'split'
 vim.o.cursorline = true
 vim.o.scrolloff = 10
 vim.o.confirm = true
+vim.o.termguicolors = true
+
+-- Disable all LSP semantic highlights to let Treesitter handle highlighting
+vim.api.nvim_create_autocmd('ColorScheme', {
+  callback = function()
+    for _, group in ipairs(vim.fn.getcompletion('@lsp', 'highlight')) do
+      vim.api.nvim_set_hl(0, group, {})
+    end
+  end,
+})
 
 -- [[ Basic Keymaps ]]
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
@@ -50,10 +61,8 @@ vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagn
 -- or just use <C-\><C-n> to exit terminal mode
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
 
-vim.keymap.set('n', '<C-h>', '<C-w><C-h>', { desc = 'Move focus to the left window' })
-vim.keymap.set('n', '<C-l>', '<C-w><C-l>', { desc = 'Move focus to the right window' })
-vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
-vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
+-- NOTE: <C-h>/<C-j>/<C-k>/<C-l> move focus between splits AND tmux panes.
+--  They are defined by the vim-tmux-navigator plugin, see `lua/custom/plugins/tmux-navigator.lua`.
 
 -- NOTE: Some terminals have colliding keymaps or are not able to send distinct keycodes
 -- vim.keymap.set("n", "<C-S-h>", "<C-w>H", { desc = "Move window to the left" })
@@ -73,27 +82,28 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   callback = function() vim.hl.on_yank() end,
 })
 
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'vue',
+  callback = function()
+    vim.bo.syntax = '' -- Disable built-in syntax to let Treesitter handle highlighting
+  end,
+})
+
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'blade',
+  callback = function()
+    vim.bo.syntax = ''
+    vim.schedule(function()
+      pcall(vim.treesitter.start, 0)
+    end)
+  end,
+})
+
 vim.filetype.add {
   pattern = {
     ['.*%.blade%.php'] = 'blade',
   },
 }
-
--- Force vuels to attach to Vue files
-vim.api.nvim_create_autocmd('FileType', {
-  pattern = 'vue',
-  callback = function(args)
-    local existing = vim.lsp.get_clients { bufnr = args.buf, name = 'vuels' }
-    if #existing == 0 then
-      vim.lsp.start({
-        name = 'vuels',
-        cmd = { 'vls', '--stdio' },
-        filetypes = { 'vue' },
-        root_dir = vim.fn.getcwd(),
-      }, { bufnr = args.buf })
-    end
-  end,
-})
 
 -- [[ Install `lazy.nvim` plugin manager ]]
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
@@ -140,7 +150,15 @@ require('lazy').setup({
     dependencies = {
       'JoosepAlviste/nvim-ts-context-commentstring',
     },
-    opts = {},
+    opts = function()
+      local ts_comment = require 'ts_context_commentstring.integrations.comment_nvim'
+      return {
+        pre_hook = function()
+          local ok, cs = pcall(ts_comment.create_pre_hook())
+          return ok and cs or nil
+        end,
+      }
+    end,
   },
 
   { -- Useful plugin to show you pending keybinds.
@@ -277,47 +295,14 @@ require('lazy').setup({
 
   -- LSP Plugins
   {
-    -- Main LSP Configuration
     'neovim/nvim-lspconfig',
     dependencies = {
-      -- Automatically install LSPs and related tools to stdpath for Neovim
-      -- Mason must be loaded before its dependents so we need to set it up here.
-      -- NOTE: `opts = {}` is the same as calling `require('mason').setup({})`
       { 'mason-org/mason.nvim', opts = {} },
       'WhoIsSethDaniel/mason-tool-installer.nvim',
-
-      -- Useful status updates for LSP.
       { 'j-hui/fidget.nvim', opts = {} },
-
-      -- Allows extra capabilities provided by blink.cmp
       'saghen/blink.cmp',
     },
     config = function()
-      -- Brief aside: **What is LSP?**
-      --
-      -- LSP is an initialism you've probably heard, but might not understand what it is.
-      --
-      -- LSP stands for Language Server Protocol. It's a protocol that helps editors
-      -- and language tooling communicate in a standardized fashion.
-      --
-      -- In general, you have a "server" which is some tool built to understand a particular
-      -- language (such as `gopls`, `lua_ls`, `rust_analyzer`, etc.). These Language Servers
-      -- (sometimes called LSP servers, but that's kind of like ATM Machine) are standalone
-      -- processes that communicate with some "client" - in this case, Neovim!
-      --
-      -- LSP provides Neovim with features like:
-      --  - Go to definition
-      --  - Find references
-      --  - Autocompletion
-      --  - Symbol Search
-      --  - and more!
-      --
-      -- Thus, Language Servers are external tools that must be installed separately from
-      -- Neovim. This is where `mason` and related plugins come into play.
-      --
-      -- If you're wondering about lsp vs treesitter, you can check out the wonderfully
-      -- and elegantly composed help section, `:help lsp-vs-treesitter`
-
       --  This function gets run when an LSP attaches to a particular buffer.
       --    That is to say, every time a new file is opened that is associated with
       --    an lsp (for example, opening `main.rs` is associated with `rust_analyzer`) this
@@ -375,14 +360,6 @@ require('lazy').setup({
               end,
             })
           end
-
-          -- The following code creates a keymap to toggle inlay hints in your
-          -- code, if the language server you are using supports them
-          --
-          -- This may be unwanted, since they displace some of your code
-          if client and client:supports_method('textDocument/inlayHint', event.buf) then
-            map('<leader>th', function() vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled { bufnr = event.buf }) end, '[T]oggle Inlay [H]ints')
-          end
         end,
       })
 
@@ -439,18 +416,15 @@ require('lazy').setup({
             },
           },
         },
-        emmet_ls = {
-          filetypes = { 'html', 'css', 'blade', 'vue', 'javascript', 'typescriptreact', 'javascriptreact' },
-          init_options = {
-            html = {
-              options = {
-                ['output.selfClosingStyle'] = 'xhtml',
-              },
-            },
-          },
-        },
         vuels = {
+          cmd = { 'vls' },
           filetypes = { 'vue', 'vue-typescript' },
+          capabilities = vim.tbl_deep_extend('force', vim.lsp.protocol.make_client_capabilities(), {
+            textDocument = { semanticTokens = nil },
+          }),
+          on_init = function(client, initialize_result)
+            if client.server_capabilities then client.server_capabilities.semanticTokensProvider = nil end
+          end,
           on_attach = function(client) client.server_capabilities.semanticTokensProvider = nil end,
           settings = {
             vetur = {
@@ -485,19 +459,21 @@ require('lazy').setup({
               },
             },
           },
-          root_dir = function(fname) return vim.fs.find({ 'package.json', 'vue.config.js', '.git', 'webpack.mix.js' }, { path = fname, upward = true })[1] end,
+          root_dir = function(bufnr)
+            local fname = type(bufnr) == 'number' and vim.api.nvim_buf_get_name(bufnr) or bufnr
+            if fname == '' then return vim.loop.cwd() end
+            local result = vim.fs.find({ 'package.json', 'vue.config.js', '.git', 'webpack.mix.js' }, { path = fname, upward = true })
+            return result[1] and vim.fs.dirname(result[1]) or vim.loop.cwd()
+          end,
+        },
+        emmet_language_server = {
+          filetypes = { 'html', 'css', 'scss', 'blade', 'vue', 'javascript', 'javascriptreact', 'typescriptreact' },
         },
         lua_ls = {},
         clangd = {},
         --gopls = {},
         --pyright = {},
         --rust_analyzer = {},
-        --
-        -- Some languages (like typescript) have entire language plugins that can be useful:
-        --    https://github.com/pmizio/typescript-tools.nvim
-        --
-        -- But for many setups, the LSP (`ts_ls`) will work just fine
-        -- ts_ls = {},
       }
 
       -- Ensure the servers and tools above are installed
@@ -513,10 +489,12 @@ require('lazy').setup({
         'intelephense',
         'typescript-language-server',
         'vetur-vls',
-        'blade-formatter',
         'laravel-ls',
         'emmet-language-server',
         'prettier',
+        'blade-formatter',
+        'php-cs-fixer',
+        'markdownlint',
       }
 
       -- vim.list_extend(ensure_installed, {
@@ -534,8 +512,8 @@ require('lazy').setup({
         vim.lsp.enable(name)
       end
 
-      -- Configura laravel-ls con vim.lsp.config
-      vim.lsp.config('laravel-ls', {
+      -- Configura laravel_ls (nome deve corrispondere a nvim-lspconfig per ereditare cmd, root_dir, ecc.)
+      vim.lsp.config('laravel_ls', {
         capabilities = capabilities,
         filetypes = { 'blade', 'php' },
         settings = {
@@ -546,7 +524,7 @@ require('lazy').setup({
           },
         },
       })
-      vim.lsp.enable 'laravel-ls'
+      vim.lsp.enable 'laravel_ls'
 
       -- Special Lua Config, as recommended by neovim help docs
       vim.lsp.config('lua_ls', {
@@ -592,9 +570,6 @@ require('lazy').setup({
     opts = {
       notify_on_error = false,
       formatters = {
-        blade_formatter = {
-          timeout_ms = 30000,
-        },
         prettier = {
           timeout_ms = 30000,
         },
@@ -602,7 +577,7 @@ require('lazy').setup({
       format_on_save = nil,
       formatters_by_ft = {
         lua = { 'stylua' },
-        php = { 'intelephense' },
+        php = { 'php_cs_fixer' },
         blade = { 'blade-formatter' },
         vue = { 'prettierd', 'prettier', stop_after_first = true },
       },
@@ -677,9 +652,9 @@ require('lazy').setup({
       },
 
       completion = {
-        -- By default, you may press `<c-space>` to show the documentation.
-        -- Optionally, set `auto_show = true` to show the documentation after a delay.
-        documentation = { auto_show = false, auto_show_delay_ms = 500 },
+        trigger = { show_on_keyword = true },
+        list = { selection = { preselect = true, auto_insert = false } },
+        documentation = { auto_show = true, auto_show_delay_ms = 500 },
       },
 
       sources = {
@@ -692,7 +667,7 @@ require('lazy').setup({
         },
         per_filetype = {
           vue = { 'lsp', 'path', 'snippets', 'buffer' },
-          -- blade = { 'lsp', 'path', 'snippets', 'buffer' },
+          blade = { 'lsp', 'path', 'snippets', 'buffer' },
           php = { 'lsp', 'path', 'snippets', 'buffer', 'dadbod' },
         },
       },
@@ -723,7 +698,7 @@ require('lazy').setup({
     config = function()
       ---@diagnostic disable-next-line: missing-fields
       require('tokyonight').setup {
-        transparent = true,
+        transparent = false,
         styles = {
           sidebars = 'transparent',
           comments = { italic = false }, -- Disable italics in comments
@@ -733,9 +708,7 @@ require('lazy').setup({
       -- Load the colorscheme here.
       -- Like many other themes, this one has different styles, and you could load
       -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'lunaperche'
-      vim.api.nvim_set_hl(0, 'Normal', { bg = 'none' })
-      vim.api.nvim_set_hl(0, 'NormalFloat', { bg = 'none' })
+      vim.cmd.colorscheme 'vague'
     end,
   },
 
@@ -789,7 +762,7 @@ require('lazy').setup({
     opts = {
       languages = {
         vue = {
-          __default = '<!-- %s -->',
+          __default = '//',
           script_element = { __default = '// %s', __multiline = '/* %s */' },
           style_element = '/* %s */',
           template_element = '<!-- %s -->',

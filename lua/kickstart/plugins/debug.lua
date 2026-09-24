@@ -1,11 +1,3 @@
--- debug.lua
---
--- Shows how to use the DAP plugin to debug your code.
---
--- Primarily focused on configuring the debugger for Go, but can
--- be extended to other languages as well. That's why it's called
--- kickstart.nvim and not kitchen-sink.nvim ;)
-
 return {
   -- NOTE: Yes, you can install new plugins here!
   'mfussenegger/nvim-dap',
@@ -68,19 +60,10 @@ return {
     local dapui = require 'dapui'
 
     require('mason-nvim-dap').setup {
-      -- Makes a best effort to setup the various debuggers with
-      -- reasonable debug configurations
       automatic_installation = true,
-
-      -- You can provide additional configuration to the handlers,
-      -- see mason-nvim-dap README for more information
       handlers = {},
-
-      -- You'll need to check that you have the required things installed
-      -- online, please don't ask me how to install them :)
       ensure_installed = {
-        -- Update this to ensure that you have the debuggers for the langs you want
-        'delve',
+        'php-debug-adapter',
       },
     }
 
@@ -105,7 +88,28 @@ return {
         },
       },
     }
-
+    dap.adapters.php = {
+      type = 'executable',
+      command = 'node',
+      args = {
+        vim.fn.stdpath 'data' .. '/mason/packages/php-debug-adapter/extension/out/phpDebug.js',
+      },
+    }
+    dap.configurations.php = {
+      {
+        type = 'php',
+        request = 'launch',
+        name = 'Listen for Xdebug',
+        port = 9004,
+        -- Ancora al root del progetto (dir che contiene .git), non a getcwd():
+        -- i breakpoint restano validi anche aprendo nvim da una sottocartella.
+        pathMappings = {
+          ['/var/www/html'] = vim.fn.fnamemodify(vim.fs.find('.git', { path = vim.fn.expand '%:p:h', upward = true })[1] or vim.fn.getcwd(), ':h'),
+        },
+      },
+    }
+    -- Log DAP: riattiva 'trace' solo per diagnosticare, altrimenti scrive troppo.
+    -- require('dap').set_log_level 'trace'
     -- Change breakpoint icons
     -- vim.api.nvim_set_hl(0, 'DapBreak', { fg = '#e51400' })
     -- vim.api.nvim_set_hl(0, 'DapStop', { fg = '#ffcc00' })

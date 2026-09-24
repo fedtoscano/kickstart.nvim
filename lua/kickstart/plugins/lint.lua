@@ -50,7 +50,18 @@ return {
           -- Only run the linter in buffers that you can modify in order to
           -- avoid superfluous noise, notably within the handy LSP pop-ups that
           -- describe the hovered symbol using Markdown.
-          if vim.bo.modifiable then lint.try_lint() end
+          if not vim.bo.modifiable then return end
+
+          -- Esegui solo i linter effettivamente installati: evita l'errore
+          -- ENOENT (es. markdownlint mancante) che spammava ad ogni BufEnter.
+          local names = lint.linters_by_ft[vim.bo.filetype] or {}
+          local runnable = {}
+          for _, name in ipairs(names) do
+            local linter = lint.linters[name]
+            local cmd = type(linter) == 'table' and linter.cmd or nil
+            if type(cmd) ~= 'string' or vim.fn.executable(cmd) == 1 then table.insert(runnable, name) end
+          end
+          if #runnable > 0 then lint.try_lint(runnable) end
         end,
       })
     end,
